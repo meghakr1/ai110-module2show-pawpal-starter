@@ -58,6 +58,8 @@ def print_schedule(owner: Owner, plan: dict, available_minutes: int) -> None:
 
 
 def main() -> None:
+    scheduler = Scheduler()
+
     # 1. Create an owner.
     owner = Owner(name="Jordan", day_start_hour=8)
 
@@ -65,21 +67,55 @@ def main() -> None:
     dog = Pet(name="Mochi", species="dog", breed="Corgi")
     cat = Pet(name="Simba", species="cat")
 
-    # 3. Add at least three tasks with different times (durations).
-    dog.add_task(Task("Morning walk", duration_minutes=30, priority="high"))
-    dog.add_task(Task("Feeding", duration_minutes=10, priority="high"))
-    dog.add_task(Task("Enrichment puzzle", duration_minutes=20, priority="low"))
-    cat.add_task(Task("Litter box", duration_minutes=5, priority="high"))
-    cat.add_task(Task("Grooming", duration_minutes=45, priority="medium"))
+    # 3. Add tasks OUT OF ORDER (note the times are not chronological) so we can
+    #    prove sort_by_time() actually reorders them.
+    dog.add_task(Task("Evening walk", 30, "high", time="18:00"))
+    dog.add_task(Task("Morning walk", 30, "high", time="08:00"))
+    dog.add_task(Task("Lunch feeding", 10, "medium", time="12:30"))
+    cat.add_task(Task("Litter box", 5, "high", time="07:30"))
+    # This one clashes with the dog's Morning walk (both at 08:00) — a conflict.
+    cat.add_task(Task("Vet phone call", 15, "medium", time="08:00"))
+    grooming = Task("Grooming", 45, "medium", time="15:00")
+    grooming.mark_done()  # already completed today
+    cat.add_task(grooming)
 
     owner.add_pet(dog)
     owner.add_pet(cat)
 
-    # 4. Build and print "Today's Schedule".
-    scheduler = Scheduler()
+    # CONFLICT DETECTION: warn (don't crash) if any tasks clash.
+    print("=== Conflict check ===")
+    warnings = scheduler.find_conflicts(owner.all_tasks(), available_minutes=90)
+    if warnings:
+        for warning in warnings:
+            print(f"  ⚠️  {warning}")
+    else:
+        print("  No conflicts detected.")
+    print()
+
+    # 4. SORTING: order every task chronologically by its "HH:MM" time.
+    print("=== All tasks, sorted by time ===")
+    for task in scheduler.sort_by_time(owner.all_tasks()):
+        print(f"  {task.time}  {task.title} ({task.duration_minutes} min)")
+
+    # 5. FILTERING by completion status.
+    pending = scheduler.filter_by_status(owner.all_tasks(), completed=False)
+    done = scheduler.filter_by_status(owner.all_tasks(), completed=True)
+    print(f"\n=== Pending tasks ({len(pending)}) ===")
+    for task in scheduler.sort_by_time(pending):
+        print(f"  {task.time}  {task.title}")
+    print(f"\n=== Completed tasks ({len(done)}) ===")
+    for task in done:
+        print(f"  {task.time}  {task.title}")
+
+    # 6. FILTERING by pet name.
+    print("\n=== Mochi's tasks ===")
+    for task in scheduler.sort_by_time(owner.tasks_for_pet("Mochi")):
+        print(f"  {task.time}  {task.title}")
+
+    # 7. Build and print "Today's Schedule".
+    print()
     available_minutes = 90  # time the owner has available today
     plan = scheduler.plan_for_owner(owner, available_minutes=available_minutes)
-
     print_schedule(owner, plan, available_minutes)
 
 

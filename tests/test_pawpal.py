@@ -41,6 +41,159 @@ def test_priority_rank_orders_high_above_low():
     assert Task("a", 5, "high").priority_rank() > Task("b", 5, "low").priority_rank()
 
 
+def test_task_rejects_unknown_recurrence():
+    with pytest.raises(ValueError):
+        Task("Walk", 20, recurrence="hourly")
+
+
+def test_weekly_task_is_due_only_on_its_weekday():
+    grooming = Task("Grooming", 45, recurrence="weekly", weekday=5)  # Saturday
+    assert grooming.is_due_on(5) is True
+    assert grooming.is_due_on(2) is False
+    # Daily tasks are due every day.
+    assert Task("Walk", 20, recurrence="daily").is_due_on(2) is True
+
+
+def test_build_plan_filters_out_tasks_not_due_that_day(scheduler):
+    daily = Task("Walk", 20, "high", recurrence="daily")
+    weekly = Task("Bath", 30, "high", recurrence="weekly", weekday=6)  # Sunday
+    plan = scheduler.build_plan([daily, weekly], available_minutes=120, day=2)  # Wed
+
+    titles = [item["task"].title for item in plan["items"]]
+    assert "Walk" in titles
+    assert "Bath" not in titles  # weekly-Sunday task not due on Wednesday
+
+
+def test_find_conflicts_flags_over_budget(scheduler):
+    tasks = [Task("Walk", 60, "high"), Task("Vet", 90, "high")]
+    conflicts = scheduler.find_conflicts(tasks, available_minutes=100)
+    assert any("Over budget" in c for c in conflicts)
+
+
+def test_find_conflicts_flags_duplicates(scheduler):
+    tasks = [Task("Feeding", 10, "high"), Task("feeding", 10, "high")]
+    conflicts = scheduler.find_conflicts(tasks, available_minutes=120)
+    assert any("Duplicate" in c for c in conflicts)
+
+
+def test_find_conflicts_empty_when_all_good(scheduler):
+    tasks = [Task("Walk", 20, "high", time="08:00"), Task("Feeding", 10, "high", time="09:00")]
+    assert scheduler.find_conflicts(tasks, available_minutes=120) == []
+
+
+def test_find_conflicts_flags_same_time_slot(scheduler):
+    tasks = [
+        Task("Morning walk", 30, "high", time="08:00"),
+        Task("Vet call", 15, "medium", time="08:00"),  # same time slot
+        Task("Lunch", 10, "low", time="12:00"),
+    ]
+    conflicts = scheduler.find_conflicts(tasks, available_minutes=300)
+    time_conflicts = [c for c in conflicts if "Time conflict at 08:00" in c]
+    assert len(time_conflicts) == 1
+    assert "Morning walk" in time_conflicts[0]
+    assert "Vet call" in time_conflicts[0]
+
+
+def test_find_conflicts_ignores_untimed_tasks(scheduler):
+    tasks = [Task("A", 10), Task("B", 10)]  # no time set on either
+    assert not any("Time conflict" in c for c in scheduler.find_conflicts(tasks, 120))
+
+
+def test_task_normalizes_and_validates_time():
+    assert Task("Walk", 20, time="8:5").time == "08:05"  # zero-padded
+    with pytest.raises(ValueError):
+        Task("Walk", 20, time="25:00")
+
+
+def test_sort_by_time_orders_chronologically(scheduler):
+    tasks = [
+        Task("Evening", 10, time="18:00"),
+        Task("Morning", 10, time="08:00"),
+        Task("Noon", 10, time="12:30"),
+    ]
+    ordered = [t.title for t in scheduler.sort_by_time(tasks)]
+    assert ordered == ["Morning", "Noon", "Evening"]
+
+
+def test_sort_by_time_sends_untimed_tasks_last(scheduler):
+    tasks = [Task("Untimed", 10), Task("Timed", 10, time="09:00")]
+    ordered = [t.title for t in scheduler.sort_by_time(tasks)]
+    assert ordered == ["Timed", "Untimed"]
+
+
+def test_filter_by_status_splits_done_and_pending(scheduler):
+    done = Task("Done", 10)
+    done.mark_done()
+    pending = Task("Pending", 10)
+    tasks = [done, pending]
+
+    assert scheduler.filter_by_status(tasks, completed=False) == [pending]
+    assert scheduler.filter_by_status(tasks, completed=True) == [done]
+
+
+def test_next_occurrence_for_daily_is_fresh_copy():
+    task = Task("Walk", 30, "high", recurrence="daily", time="08:00")
+    task.mark_done()
+    nxt = task.next_occurrence()
+    assert nxt is not None
+    assert nxt.completed is False       # the new one is not done
+    assert nxt.title == "Walk"          # attributes preserved
+    assert nxt.time == "08:00"
+    assert nxt is not task              # a distinct instance
+
+
+def test_next_occurrence_for_weekly_preserves_weekday():
+    task = Task("Bath", 45, recurrence="weekly", weekday=6)
+    nxt = task.next_occurrence()
+    assert nxt is not None
+    assert nxt.recurrence == "weekly"
+    assert nxt.weekday == 6
+
+
+def test_next_occurrence_for_one_off_is_none():
+    task = Task("Vet visit", 60, recurrence="none")
+    assert task.next_occurrence() is None
+
+
+def test_complete_task_auto_adds_next_occurrence_for_recurring():
+    pet = Pet("Mochi", "dog")
+    walk = Task("Walk", 30, recurrence="daily")
+    pet.add_task(walk)
+    assert len(pet.tasks) == 1
+
+    upcoming = pet.complete_task(walk)
+
+    assert walk.completed is True           # original marked done
+    assert upcoming in pet.tasks            # next occurrence auto-added
+    assert upcoming.completed is False
+    assert len(pet.tasks) == 2
+
+
+def test_complete_task_does_not_recur_for_one_off():
+    pet = Pet("Mochi", "dog")
+    vet = Task("Vet visit", 60, recurrence="none")
+    pet.add_task(vet)
+
+    upcoming = pet.complete_task(vet)
+
+    assert upcoming is None
+    assert vet.completed is True
+    assert len(pet.tasks) == 1              # no new task added
+
+
+def test_tasks_for_pet_returns_only_that_pets_tasks():
+    owner = Owner("Jordan")
+    dog = Pet("Mochi", "dog")
+    dog.add_task(Task("Walk", 20))
+    cat = Pet("Simba", "cat")
+    cat.add_task(Task("Litter", 5))
+    owner.add_pet(dog)
+    owner.add_pet(cat)
+
+    titles = [t.title for t in owner.tasks_for_pet("mochi")]  # case-insensitive
+    assert titles == ["Walk"]
+
+
 def test_sort_orders_by_priority_then_duration(scheduler):
     low = Task("Enrichment", 10, "low")
     high_long = Task("Long walk", 45, "high")

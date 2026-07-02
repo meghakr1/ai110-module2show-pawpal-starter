@@ -9,6 +9,7 @@ classDiagram
         +list~Pet~ pets
         +add_pet(pet) None
         +all_tasks() list~Task~
+        +tasks_for_pet(pet_name) list~Task~
     }
 
     class Pet {
@@ -17,6 +18,7 @@ classDiagram
         +str breed
         +list~Task~ tasks
         +add_task(task) None
+        +complete_task(task) Task
     }
 
     class Task {
@@ -25,16 +27,23 @@ classDiagram
         +str priority
         +str category
         +str recurrence
+        +int weekday
+        +str time
         +bool completed
         +mark_done() None
+        +next_occurrence() Task
+        +is_due_on(weekday) bool
         +priority_rank() int
         +fits_within(minutes) bool
     }
 
     class Scheduler {
-        +plan_for_owner(owner, available_minutes, start_hour) dict
+        +plan_for_owner(owner, available_minutes, start_hour, day) dict
+        +find_conflicts(tasks, available_minutes) list~str~
         +sort_tasks(tasks) list~Task~
-        +build_plan(tasks, available_minutes, start_hour) dict
+        +sort_by_time(tasks) list~Task~
+        +filter_by_status(tasks, completed) list~Task~
+        +build_plan(tasks, available_minutes, start_hour, day) dict
         +explain(plan) str
     }
 

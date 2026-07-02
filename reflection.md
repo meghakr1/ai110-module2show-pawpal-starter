@@ -65,8 +65,22 @@ four-class implementation exactly (including the new `owner_id` field).
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+One clear tradeoff is in my conflict detection. `Scheduler.find_conflicts()` flags two tasks
+as clashing only when they share the *exact same* `HH:MM` start time — it does **not** account
+for overlapping durations. So a 40-minute task starting at 08:00 and another task starting at
+08:30 genuinely overlap in real life, but my scheduler won't warn about them because their start
+times differ. To catch that, I would have to treat each task as a time interval
+(`start` to `start + duration_minutes`) and check whether any two intervals overlap, which is
+more code and more edge cases (tasks with no time set, tasks crossing midnight, etc.).
+
+I chose the simpler exact-match approach on purpose. It is a "lightweight" check: it groups tasks
+by their time string in a single pass, is easy to read and test, and returns a plain warning
+message instead of trying to resolve the conflict or crashing. For a busy pet owner sketching out
+a daily routine, catching "you scheduled two things for 8:00" covers the most common and most
+obvious mistake, and the cost of missing a partial overlap is low — the owner still sees both
+tasks in the plan and can adjust. If this were a medical or industrial scheduler where overlaps
+had real consequences, the full interval-overlap algorithm would be worth the extra complexity,
+but for this scenario the exact-match check is a reasonable, readable starting point.
 
 ---
 
