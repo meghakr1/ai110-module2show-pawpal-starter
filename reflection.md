@@ -43,8 +43,16 @@ simplified down to just `Owner`, `Pet`, `Task`, and `Scheduler`:
 
 I also added a tie-breaker to the sorting rule along the way: sort by priority first, then by
 shorter duration, so when time is tight the day fills with more quick wins instead of one long
-task crowding others out. After settling on this simpler shape, I updated the UML so the
-diagram matches the final four-class implementation exactly.
+task crowding others out.
+
+One more change came from a question I asked while reviewing the design: what happens if two
+owners have the same name? My original `Owner` was identified only by `name`, so two people both
+called "Jordan" would look identical. To fix this I added an auto-generated `owner_id` (a UUID)
+to the `Owner` class, so every owner has a unique identity independent of their name, while the
+name stays as the human-friendly label.
+
+After settling on this simpler shape, I updated the UML so the diagram matches the final
+four-class implementation exactly (including the new `owner_id` field).
 
 ---
 

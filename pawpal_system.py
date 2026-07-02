@@ -21,18 +21,24 @@ class Task:
     # Priority is a simple string; the rank below lets the scheduler order tasks.
     _RANK = {"low": 1, "medium": 2, "high": 3}
 
-    title: str
-    duration_minutes: int
+    title: str  # description of the activity
+    duration_minutes: int  # how much time it takes
     priority: str = "medium"
     category: str = "general"
-    recurrence: str = "daily"  # "daily", "weekly", or "none"
+    recurrence: str = "daily"  # frequency: "daily", "weekly", or "none"
+    completed: bool = False  # completion status
 
     def __post_init__(self) -> None:
+        """Validate the duration and normalize the priority after init."""
         if self.duration_minutes <= 0:
             raise ValueError("duration_minutes must be positive")
         self.priority = self.priority.strip().lower()
         if self.priority not in self._RANK:
             raise ValueError(f"priority must be one of {list(self._RANK)}")
+
+    def mark_done(self) -> None:
+        """Mark this task as completed so the scheduler skips it."""
+        self.completed = True
 
     def priority_rank(self) -> int:
         """Numeric importance (higher = more important) used for sorting."""
@@ -53,6 +59,7 @@ class Pet:
     tasks: list[Task] = field(default_factory=list)
 
     def add_task(self, task: Task) -> None:
+        """Add a task to this pet's task list."""
         self.tasks.append(task)
 
 
@@ -67,6 +74,7 @@ class Owner:
     owner_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def add_pet(self, pet: Pet) -> None:
+        """Add a pet to this owner's list of pets."""
         self.pets.append(pet)
 
     def all_tasks(self) -> list[Task]:
@@ -94,6 +102,17 @@ class Scheduler:
     3. Any task that no longer fits is recorded as skipped (never overlapped).
     """
 
+    def plan_for_owner(
+        self, owner: "Owner", available_minutes: int, start_hour: int = 8
+    ) -> dict:
+        """Retrieve every task across the owner's pets and build a plan.
+
+        This is how the Scheduler "talks" to an Owner: it calls the owner's
+        ``all_tasks()`` accessor rather than reaching into ``owner.pets[i].tasks``
+        itself, so the Scheduler stays decoupled from how the Owner stores pets.
+        """
+        return self.build_plan(owner.all_tasks(), available_minutes, start_hour)
+
     def sort_tasks(self, tasks: list[Task]) -> list[Task]:
         """High priority first; break ties with shorter duration first."""
         return sorted(
@@ -104,7 +123,10 @@ class Scheduler:
     def build_plan(
         self, tasks: list[Task], available_minutes: int, start_hour: int = 8
     ) -> dict:
-        """Select and time-order tasks that fit within the time budget."""
+        """Select and time-order tasks that fit within the time budget.
+
+        Already-completed tasks are ignored entirely.
+        """
         if available_minutes < 0:
             raise ValueError("available_minutes cannot be negative")
         if not 0 <= start_hour <= 23:
@@ -115,7 +137,8 @@ class Scheduler:
         remaining = available_minutes
         cursor = start_hour * 60  # minutes since midnight
 
-        for task in self.sort_tasks(tasks):
+        active_tasks = [task for task in tasks if not task.completed]
+        for task in self.sort_tasks(active_tasks):
             if task.fits_within(remaining):
                 items.append(
                     {
@@ -159,6 +182,7 @@ class Scheduler:
 
     @staticmethod
     def _format_time(minutes_since_midnight: int) -> str:
+        """Convert minutes-since-midnight into an "HH:MM" string."""
         minutes_since_midnight %= 24 * 60
         hours, minutes = divmod(minutes_since_midnight, 60)
         return f"{hours:02d}:{minutes:02d}"

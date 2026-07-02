@@ -25,11 +25,14 @@ classDiagram
         +str priority
         +str category
         +str recurrence
+        +bool completed
+        +mark_done() None
         +priority_rank() int
         +fits_within(minutes) bool
     }
 
     class Scheduler {
+        +plan_for_owner(owner, available_minutes, start_hour) dict
         +sort_tasks(tasks) list~Task~
         +build_plan(tasks, available_minutes, start_hour) dict
         +explain(plan) str
@@ -37,4 +40,5 @@ classDiagram
 
     Owner "1" --> "*" Pet : owns
     Pet "1" --> "*" Task : has
+    Scheduler ..> Owner : reads tasks from
     Scheduler ..> Task : schedules
