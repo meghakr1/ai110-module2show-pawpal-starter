@@ -1,5 +1,5 @@
 classDiagram
-    %% PawPal+ — daily pet-care planner (matches pawpal/ implementation)
+    %% PawPal+ — daily pet-care planner (matches pawpal_system.py implementation)
     %% Four core components: Owner, Pet, Task, Scheduler.
 
     class Owner {
@@ -49,5 +49,7 @@ classDiagram
 
     Owner "1" --> "*" Pet : owns
     Pet "1" --> "*" Task : has
+    Pet ..> Task : complete_task creates
+    Task ..> Task : next_occurrence creates
     Scheduler ..> Owner : reads tasks from
     Scheduler ..> Task : schedules

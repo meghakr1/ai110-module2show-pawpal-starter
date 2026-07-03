@@ -60,8 +60,26 @@ four-class implementation exactly (including the new `owner_id` field).
 
 **a. Constraints and priorities**
 
-- What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
+My scheduler considers several constraints when building a plan:
+
+- **Available time (the budget).** `build_plan()` takes `available_minutes` and packs tasks
+  back-to-back from a `start_hour`, skipping anything that no longer fits. This is the hard
+  limit — the plan can never exceed the time the owner actually has.
+- **Priority.** Each task is `low`, `medium`, or `high`, and the scheduler places
+  higher-priority tasks first via `sort_tasks()`.
+- **Duration (as a tie-breaker).** When two tasks share a priority, the shorter one goes first,
+  so a tight day fills with more quick wins.
+- **Completion status.** Completed tasks are ignored so the owner isn't re-scheduled for things
+  already done.
+- **Recurrence / day.** Tasks are `daily`, `weekly`, or one-off, and passing a `day` filters out
+  tasks that aren't due that weekday.
+
+I decided time and priority mattered most because they map directly to the owner's real problem:
+they have a *fixed amount of time* and *some tasks matter more than others* (a walk or medication
+outranks an optional enrichment puzzle). Everything else — duration tie-breaking, recurrence,
+completion — refines that core "fit the important things into the time I have" decision rather
+than replacing it. I deliberately kept "preferences" light (just a `day_start_hour` on the owner
+and an optional per-task `time`) so the scheduler stayed simple and predictable.
 
 **b. Tradeoffs**
 
@@ -88,13 +106,79 @@ but for this scenario the exact-match check is a reasonable, readable starting p
 
 **a. How you used AI**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+I used an AI coding assistant throughout, but for different jobs at each stage:
+
+- **Design brainstorming.** I started by asking it to help brainstorm a UML class diagram from
+  the scenario, then to critique it. That conversation is what led to the three-layer idea and,
+  later, the decision to simplify from eight classes to four.
+- **Writing code from the design.** Once the classes were settled, I had it turn the UML into
+  Python dataclasses and implement the scheduling algorithms in small increments (sorting,
+  filtering, recurrence, conflict detection) rather than all at once.
+- **Refactoring.** I asked "how could this be simplified for readability or performance?" and it
+  suggested reusing `filter_by_status()` inside `find_conflicts()` and swapping a manual counting
+  loop for `collections.Counter`.
+- **Explaining concepts.** When I hit Streamlit's stateless rerun model, I asked it to explain
+  why an object created at the top of the script gets "reborn" on every click, which is how I
+  landed on storing the `Owner` in `st.session_state`.
+
+The most helpful prompts were **specific and grounded in my actual code** — e.g. "based on my
+skeletons, how should the Scheduler retrieve all tasks from the Owner's pets?" and "what updates
+should I make to my UML to match the final implementation?" Open-ended "write me a scheduler"
+prompts were far less useful than pointed questions about a decision I was already facing.
 
 **b. Judgment and verification**
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+One clear moment: the assignment prompts assumed a `Scheduler.sort_by_time()` that sorts tasks by
+a `time` attribute, and even suggested a `mark_complete()` method. I did **not** accept those
+names/shapes blindly. My `Task` didn't originally have a `time` attribute at all — start times
+were *computed by the scheduler*, not stored on tasks — so I questioned whether the method even
+made sense for my design before adding an optional `time` field. Similarly, when the assistant
+started to rename `mark_done()` to `mark_complete()`, I stopped it because it would have rippled
+through code I was happy with, and kept my own method name instead.
+
+I verified AI suggestions in three main ways: (1) **running the test suite** after every change —
+it grew to 34 tests, so a bad suggestion showed up immediately as a failure; (2) **running
+`main.py` and the Streamlit app** to watch the real behavior, which is how I confirmed things like
+completed tasks being skipped and the conflict warning actually firing; and (3) **reading the
+code myself** and asking follow-up questions when something looked off, rather than pasting it in
+and moving on. The refactor suggestions, for example, I only kept after confirming all 34 tests
+still passed.
+
+**c. AI strategy**
+
+*Which features were most effective.* The most useful capability was being able to **point the
+assistant at my actual files** (e.g. `@pawpal_system.py`) and ask grounded questions, so its
+answers matched my real code instead of a generic template. Close behind were **incremental code
+generation** (turning one agreed-on design into small, reviewable changes rather than a wall of
+code), **refactoring on request** ("how could this be simplified?"), and its ability to **explain
+concepts and tradeoffs** — the Streamlit stateless-rerun explanation and the exact-match vs.
+interval-overlap discussion both changed decisions I made. Having it keep the UML diagram and
+tests in sync with each change was also a real time-saver.
+
+*One suggestion I rejected/modified.* When an assignment step referred to a `mark_complete()`
+method, the assistant started to rename my existing `mark_done()` to match. I stopped it — the
+rename would have rippled through code and tests I was happy with for no real benefit — and kept
+`mark_done()`, writing the test against the method that actually existed. I made a similar call on
+`sort_by_time()`: rather than accept the assumption that tasks already had a `time` attribute, I
+first decided whether that field belonged in my design at all before adding it. In both cases I
+kept the design on my terms instead of bending it to a prompt's wording.
+
+*How separate chat sessions per phase helped.* I worked in distinct phases — design/UML, class
+skeletons, scheduling logic, smart features, UI, and reflection — and keeping them in separate
+conversations kept each one **focused and uncluttered**. The design chat stayed about
+responsibilities and relationships; the implementation chats stayed about code. This stopped the
+assistant from dragging stale assumptions from one phase into another, made it easy to revisit a
+single phase without scrolling through unrelated context, and mirrored the project's natural
+milestones so I always knew "where" I was.
+
+*What I learned about being the "lead architect."* The powerful lesson is that the AI is a fast,
+capable **implementer, but not the decision-maker** — I have to own the architecture. The project
+went best when I set the structure (the four classes and their responsibilities), used AI to
+brainstorm options and draft code quickly, and then **made the final call and verified it myself**
+with tests and by running the app. When I let a prompt's wording nudge the design (the rename, the
+assumed attribute), that's exactly when I had to step in. Being lead architect meant treating AI
+output as a strong proposal to review, not an answer to accept — the direction, the tradeoffs, and
+the "does this fit my design?" judgment stayed mine.
 
 ---
 
@@ -102,13 +186,37 @@ but for this scenario the exact-match check is a reasonable, readable starting p
 
 **a. What you tested**
 
-- What behaviors did you test?
-- Why were these tests important?
+My suite (`tests/test_pawpal.py`, 34 tests) focuses on behavior, not implementation details:
+
+- **Task validation** — rejecting non-positive durations, unknown priorities/recurrences, and
+  out-of-range times; normalizing priority case and zero-padding times.
+- **Sorting** — priority ordering with the shorter-duration tie-breaker, and chronological
+  `sort_by_time()` including untimed tasks falling to the end.
+- **Filtering** — `filter_by_status()` splitting pending vs. done, and `tasks_for_pet()`.
+- **Scheduling** — high-priority-first placement, back-to-back times with no overlap, skipping
+  tasks that don't fit, ignoring completed tasks, and day-based recurrence filtering.
+- **Conflict detection** — over-budget, duplicate titles, and same-time clashes (and *not*
+  flagging untimed tasks).
+- **Recurrence** — `next_occurrence()` for daily/weekly/one-off, and `complete_task()`
+  auto-adding the next occurrence.
+
+These mattered because the scheduling and conflict logic is where the real decisions happen —
+a bug there produces a plausible-looking but wrong plan, which is exactly the kind of error that's
+easy to miss by eyeballing the UI. Testing the sort/skip/conflict rules directly meant I could
+refactor confidently later.
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
-- What edge cases would you test next if you had more time?
+I'm fairly confident the scheduler works correctly for the cases it's designed for: the 34 tests
+cover the core rules, and I also verified behavior by hand through `main.py` and the Streamlit app.
+The logic is simple and deterministic (no randomness, no clock dependence), which makes it easy to
+reason about.
+
+Where I'm less certain is the edges I knowingly didn't handle. With more time I'd test:
+**partial time overlaps** (an 08:00 task lasting 40 minutes vs. an 08:30 task — currently not
+flagged); **tasks that run past midnight**; **very large task lists** to confirm performance holds;
+**a day with zero available minutes**; and **weekly tasks with no `weekday` set** to pin down the
+intended behavior. These are the scenarios most likely to surprise a real user.
 
 ---
 
@@ -116,12 +224,27 @@ but for this scenario the exact-match check is a reasonable, readable starting p
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+I'm most satisfied with the clean separation between data and behavior. `Owner`, `Pet`, and
+`Task` are simple dataclasses that just hold state, while `Scheduler` holds all the algorithms.
+That paid off repeatedly: I could add sorting, filtering, recurrence, and conflict detection as
+new methods without ever touching the data classes, and I could swap the terminal demo and the
+Streamlit UI on top of the exact same logic layer. Keeping the UML in sync with the code the
+whole way through also meant the diagram is genuinely useful documentation, not an afterthought.
 
 **b. What you would improve**
 
-- If you had another iteration, what would you improve or redesign?
+If I had another iteration, I'd upgrade conflict detection from exact-time matching to true
+**interval-overlap** detection (using each task's `time` + `duration_minutes`), since that's the
+most realistic gap in the current behavior. I'd also introduce real **calendar dates** so
+"next occurrence" of a recurring task could advance by +1 day or +7 days instead of just producing
+a reset copy. On the code side, if `find_conflicts()` grew any further I'd split its three checks
+into separate helper methods to keep each concern isolated.
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+The biggest thing I learned is that designing the structure first — and keeping it honest —
+makes everything downstream easier, and that AI is most valuable when I drive it with specific,
+grounded questions rather than letting it make decisions for me. Deciding the four classes and
+their responsibilities up front is what let me bolt on feature after feature cleanly, and the
+moments where the project went best were when I used AI to brainstorm options and explain
+tradeoffs, then made the actual call myself and verified it with tests.
